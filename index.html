@@ -11,7 +11,7 @@
       width: 100%; height: 100%;
       background: #000;
       overflow: hidden;
-      font-family: 'Courier New', monospace;
+      font-family: 'Montserrat', monospace;
       touch-action: none;
       user-select: none;
     }
@@ -213,6 +213,7 @@
   }
 
   function onPointerMove(e) {
+    stopMetronome();
     if (dragStartX === null) return;
     const cx    = e.clientX ?? (e.touches && e.touches[0].clientX);
     const delta = cx - dragStartX;
@@ -234,8 +235,9 @@
 
   function onPointerUp(e) {
     if (!isDragging) {
-      // It was a tap — toggle play
       togglePlay();
+    } else {
+      if (playing) startMetronome();
     }
     dragStartX = null;
     isDragging = false;
