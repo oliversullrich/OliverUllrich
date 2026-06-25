@@ -10,32 +10,65 @@
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
     html, body { width: 100%; height: 100%; background: #000; overflow: hidden; touch-action: none; user-select: none; }
-    #flash { position: fixed; inset: 0; background: #fff; opacity: 0; pointer-events: none; }
+    #flash { position: fixed; inset: 0; opacity: 0; pointer-events: none; }
     #bpm { position: fixed; bottom: max(40px, env(safe-area-inset-bottom) + 20px); width: 100%; text-align: center; font: 700 clamp(72px, 22vw, 120px)/1 monospace; color: #fff; opacity: 0.9; }
+    #color-indicator { position: fixed; top: max(20px, env(safe-area-inset-top) + 10px); width: 100%; display: flex; justify-content: center; gap: 10px; }
+    .dot { width: 10px; height: 10px; border-radius: 50%; opacity: 0.3; transition: opacity 0.2s; }
+    .dot.active { opacity: 1; }
   </style>
 </head>
 <body>
   <div id="flash"></div>
+  <div id="color-indicator"></div>
   <div id="bpm">120</div>
   <script>
     const FLASH_MS = 80;
-    const SENSITIVITY = 0.5;
+    const COLORS = ['#ffffff', '#ff2020', '#20dd20', '#2080ff', '#ffe020'];
 
     const flash = document.getElementById('flash');
     const bpmEl = document.getElementById('bpm');
-    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const indicator = document.getElementById('color-indicator');
 
+    let ctx = null, colorIdx = 0;
     let bpm = 120, playing = false, timer = null, flashTimer = null;
-    let dragStartX = null, dragStartBPM = bpm, dragging = false;
+    let dragStartX = null, dragStartY = null, dragStartBPM = bpm, dragging = false, dragAxis = null;
+
+    COLORS.forEach((c, i) => {
+      const dot = document.createElement('div');
+      dot.className = 'dot' + (i === 0 ? ' active' : '');
+      dot.style.background = c;
+      indicator.appendChild(dot);
+    });
+
+    function updateColor() {
+      flash.style.background = COLORS[colorIdx];
+      document.querySelectorAll('.dot').forEach((d, i) => d.classList.toggle('active', i === colorIdx));
+    }
+
+    function getCtx() {
+      if (!ctx) ctx = new (window.AudioContext || window.webkitAudioContext)();
+      ctx.resume();
+      return ctx;
+    }
+
+    function unlockAudio() {
+      const c = getCtx();
+      const buf = c.createBuffer(1, 1, 22050);
+      const src = c.createBufferSource();
+      src.buffer = buf;
+      src.connect(c.destination);
+      src.start();
+    }
 
     function beep() {
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.connect(gain); gain.connect(ctx.destination);
+      const c = getCtx();
+      const osc = c.createOscillator();
+      const gain = c.createGain();
+      osc.connect(gain); gain.connect(c.destination);
       osc.frequency.value = 1000;
-      gain.gain.setValueAtTime(0.3, ctx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.05);
-      osc.start(); osc.stop(ctx.currentTime + 0.05);
+      gain.gain.setValueAtTime(0.3, c.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, c.currentTime + 0.05);
+      osc.start(); osc.stop(c.currentTime + 0.05);
     }
 
     function doFlash() {
@@ -64,40 +97,77 @@
 
     document.addEventListener('touchstart', e => {
       e.preventDefault();
-      dragStartX = e.touches[0].clientX; dragStartBPM = bpm; dragging = false;
+      dragStartX = e.touches[0].clientX;
+      dragStartY = e.touches[0].clientY;
+      dragStartBPM = bpm;
+      dragging = false;
+      dragAxis = null;
     }, { passive: false });
 
     document.addEventListener('touchmove', e => {
       e.preventDefault();
       const x = e.touches[0].clientX;
-      if (!dragging && Math.abs(x - dragStartX) > 10) { dragging = true; stop(); }
-      if (dragging) setBPM(dragStartBPM + (x - dragStartX) * SENSITIVITY);
+      const y = e.touches[0].clientY;
+      const dx = x - dragStartX;
+      const dy = y - dragStartY;
+
+      if (!dragAxis && Math.sqrt(dx*dx + dy*dy) > 10) {
+        dragAxis = Math.abs(dx) > Math.abs(dy) ? 'x' : 'y';
+        dragging = true;
+        if (dragAxis === 'x') stop();
+      }
+
+      if (dragAxis === 'x') setBPM(dragStartBPM + dx * 0.5);
     }, { passive: false });
 
     document.addEventListener('touchend', e => {
       e.preventDefault();
-      if (!dragging) { ctx.resume(); playing = !playing; playing ? start() : stop(); }
-      else if (playing) start();
-      dragStartX = null; dragging = false;
+      unlockAudio();
+      if (!dragging) {
+        playing = !playing; playing ? start() : stop();
+      } else if (dragAxis === 'y') {
+        const dy = e.changedTouches[0].clientY - dragStartY;
+        colorIdx = (colorIdx + (dy > 0 ? 1 : -1) + COLORS.length) % COLORS.length;
+        updateColor();
+        if (playing) start();
+      } else if (playing) {
+        start();
+      }
+      dragStartX = null; dragStartY = null; dragging = false; dragAxis = null;
     }, { passive: false });
 
-    document.addEventListener('mousedown', e => { dragStartX = e.clientX; dragStartBPM = bpm; dragging = false; });
+    document.addEventListener('mousedown', e => { dragStartX = e.clientX; dragStartY = e.clientY; dragStartBPM = bpm; dragging = false; dragAxis = null; });
     document.addEventListener('mousemove', e => {
       if (dragStartX === null) return;
-      if (!dragging && Math.abs(e.clientX - dragStartX) > 10) { dragging = true; stop(); }
-      if (dragging) setBPM(dragStartBPM + (e.clientX - dragStartX) * SENSITIVITY);
+      const dx = e.clientX - dragStartX;
+      const dy = e.clientY - dragStartY;
+      if (!dragAxis && Math.sqrt(dx*dx + dy*dy) > 10) {
+        dragAxis = Math.abs(dx) > Math.abs(dy) ? 'x' : 'y';
+        dragging = true;
+        if (dragAxis === 'x') stop();
+      }
+      if (dragAxis === 'x') setBPM(dragStartBPM + dx * 0.5);
     });
-    document.addEventListener('mouseup', () => {
-      if (!dragging) { ctx.resume(); playing = !playing; playing ? start() : stop(); }
-      else if (playing) start();
-      dragStartX = null; dragging = false;
+    document.addEventListener('mouseup', e => {
+      if (!dragging) { playing = !playing; playing ? start() : stop(); }
+      else if (dragAxis === 'y') {
+        const dy = e.clientY - dragStartY;
+        colorIdx = (colorIdx + (dy > 0 ? 1 : -1) + COLORS.length) % COLORS.length;
+        updateColor();
+        if (playing) start();
+      } else if (playing) start();
+      dragStartX = null; dragStartY = null; dragging = false; dragAxis = null;
     });
 
     document.addEventListener('keydown', e => {
-      if (e.code === 'Space') { e.preventDefault(); ctx.resume(); playing = !playing; playing ? start() : stop(); }
+      if (e.code === 'Space') { e.preventDefault(); playing = !playing; playing ? start() : stop(); }
       if (e.code === 'ArrowRight') { setBPM(bpm + 1); if (playing) start(); }
       if (e.code === 'ArrowLeft') { setBPM(bpm - 1); if (playing) start(); }
+      if (e.code === 'ArrowUp') { colorIdx = (colorIdx - 1 + COLORS.length) % COLORS.length; updateColor(); }
+      if (e.code === 'ArrowDown') { colorIdx = (colorIdx + 1) % COLORS.length; updateColor(); }
     });
+
+    updateColor();
   </script>
 </body>
 </html>
