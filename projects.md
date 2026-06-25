@@ -6,4 +6,4 @@ permalink: /projects/
 
 ## Projects
 
-- [Flash Metronome](./metronome/) — A tap-to-start, swipe-to-change-BPM flash metronome
+- [Flash Metronome](./Metronome/) — A tap-to-start, swipe-to-change-BPM flash metronome
