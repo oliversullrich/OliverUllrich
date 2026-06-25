@@ -1,5 +1,5 @@
 title: Oliver Ullrich
 description: Cold Plasma R&D Inventor, Machinist & Mechanical Engineer @ UM-Dearborn
-theme: jekyll-theme-midnight
+theme: minima
 header_pages:
   - projects.md
