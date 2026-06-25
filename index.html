@@ -19,11 +19,11 @@
     /* ── Flash element ── */
     #flash {
       position: fixed;
-      top: 0; left: -100%;
+      top: 0; left: 0;
       width: 100%; height: 100%;
       background: #fff;
       pointer-events: none;
-      /* transition applied via JS */
+      opacity: 0;
     }
 
     /* ── HUD ── */
@@ -151,23 +151,12 @@
 
   // ── Flash animation ──────────────────────────
   function doFlash() {
-    // Slide in from left, pause briefly, slide out to right
     clearTimeout(flashTimer);
-    flash.style.transition = 'none';
-    flash.style.left = '-100%';
-
-    // Force reflow
-    flash.getBoundingClientRect();
-
-    // Slide in
-    flash.style.transition = `left ${FLASH_DURATION_MS * 0.4}ms linear`;
-    flash.style.left = '0%';
+    flash.style.opacity = '1';
 
     flashTimer = setTimeout(() => {
-      // Slide out
-      flash.style.transition = `left ${FLASH_DURATION_MS * 0.6}ms linear`;
-      flash.style.left = '100%';
-    }, FLASH_DURATION_MS * 0.4);
+      flash.style.opacity = '0';
+    }, FLASH_DURATION_MS);
   }
 
   // ── Metronome loop ───────────────────────────
@@ -182,8 +171,7 @@
     clearInterval(timerId);
     timerId = null;
     clearTimeout(flashTimer);
-    flash.style.transition = 'none';
-    flash.style.left = '-100%';
+    flash.style.opacity = '0';
   }
 
   function togglePlay() {
