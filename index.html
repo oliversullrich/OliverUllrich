@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+  <title>Flash Metronome</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    html, body {
+      width: 100%; height: 100%;
+      background: #000;
+      overflow: hidden;
+      font-family: 'Courier New', monospace;
+      touch-action: none;
+      user-select: none;
+    }
+
+    /* ── Flash element ── */
+    #flash {
+      position: fixed;
+      top: 0; left: -100%;
+      width: 100%; height: 100%;
+      background: #fff;
+      pointer-events: none;
+      /* transition applied via JS */
+    }
+
+    /* ── HUD ── */
+    #hud {
+      position: fixed;
+      bottom: 0; left: 0; right: 0;
+      padding: 28px 32px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+      z-index: 10;
+    }
+
+    #bpm-display {
+      font-size: clamp(64px, 18vw, 120px);
+      font-weight: 700;
+      letter-spacing: -0.04em;
+      color: #fff;
+      line-height: 1;
+      opacity: 0.92;
+      transition: opacity 0.1s;
+    }
+
+    #bpm-label {
+      font-size: 13px;
+      letter-spacing: 0.28em;
+      color: rgba(255,255,255,0.35);
+      text-transform: uppercase;
+    }
+
+    #hint {
+      margin-top: 10px;
+      font-size: 12px;
+      letter-spacing: 0.18em;
+      color: rgba(255,255,255,0.18);
+      text-transform: uppercase;
+    }
+
+    /* ── Play/Stop tap zone (center of screen) ── */
+    #tap-zone {
+      position: fixed;
+      top: 0; left: 0; right: 0;
+      bottom: 180px;
+      z-index: 5;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    #play-icon {
+      width: 56px; height: 56px;
+      opacity: 0.18;
+      transition: opacity 0.2s;
+      pointer-events: none;
+    }
+    #play-icon.playing { opacity: 0.08; }
+
+    /* ── Drag feedback bar ── */
+    #drag-bar {
+      position: fixed;
+      top: 0; left: 0; right: 0;
+      height: 3px;
+      background: rgba(255,255,255,0.0);
+      z-index: 20;
+      transition: background 0.2s;
+    }
+    #drag-bar.active { background: rgba(255,255,255,0.35); }
+    #drag-progress {
+      height: 100%;
+      background: #fff;
+      width: 0%;
+      transition: width 0.05s;
+    }
+  </style>
+</head>
+<body>
+
+<div id="flash"></div>
+<div id="drag-bar"><div id="drag-progress"></div></div>
+
+<div id="tap-zone">
+  <!-- Play/Pause SVG icon -->
+  <svg id="play-icon" viewBox="0 0 56 56" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <circle cx="28" cy="28" r="27" stroke="white" stroke-width="2"/>
+    <!-- Play triangle -->
+    <polygon id="icon-play" points="22,18 42,28 22,38" fill="white"/>
+    <!-- Pause bars (hidden by default) -->
+    <rect id="icon-pause-l" x="18" y="18" width="7" height="20" fill="white" style="display:none"/>
+    <rect id="icon-pause-r" x="31" y="18" width="7" height="20" fill="white" style="display:none"/>
+  </svg>
+</div>
+
+<div id="hud">
+  <div id="bpm-display">120</div>
+  <div id="bpm-label">BPM</div>
+  <div id="hint">tap to start · swipe to change BPM</div>
+</div>
+
+<script>
+  // ─────────────────────────────────────────────
+  //  CONFIG  (change these to taste)
+  // ─────────────────────────────────────────────
+  const FLASH_DURATION_MS   = 80;   // how long the white flash lasts (ms)
+  const BPM_MIN             = 20;
+  const BPM_MAX             = 300;
+  const SWIPE_SENSITIVITY   = 0.35; // BPM change per pixel of horizontal swipe
+  // ─────────────────────────────────────────────
+
+  const flash        = document.getElementById('flash');
+  const bpmDisplay   = document.getElementById('bpm-display');
+  const playIcon     = document.getElementById('play-icon');
+  const iconPlay     = document.getElementById('icon-play');
+  const iconPauseL   = document.getElementById('icon-pause-l');
+  const iconPauseR   = document.getElementById('icon-pause-r');
+  const hint         = document.getElementById('hint');
+  const dragBar      = document.getElementById('drag-bar');
+  const dragProgress = document.getElementById('drag-progress');
+  const tapZone      = document.getElementById('tap-zone');
+
+  let bpm       = 120;
+  let playing   = false;
+  let timerId   = null;
+  let flashTimer = null;
+
+  // ── Flash animation ──────────────────────────
+  function doFlash() {
+    // Slide in from left, pause briefly, slide out to right
+    clearTimeout(flashTimer);
+    flash.style.transition = 'none';
+    flash.style.left = '-100%';
+
+    // Force reflow
+    flash.getBoundingClientRect();
+
+    // Slide in
+    flash.style.transition = `left ${FLASH_DURATION_MS * 0.4}ms linear`;
+    flash.style.left = '0%';
+
+    flashTimer = setTimeout(() => {
+      // Slide out
+      flash.style.transition = `left ${FLASH_DURATION_MS * 0.6}ms linear`;
+      flash.style.left = '100%';
+    }, FLASH_DURATION_MS * 0.4);
+  }
+
+  // ── Metronome loop ───────────────────────────
+  function startMetronome() {
+    if (timerId) clearInterval(timerId);
+    const interval = (60 / bpm) * 1000;
+    doFlash();
+    timerId = setInterval(doFlash, interval);
+  }
+
+  function stopMetronome() {
+    clearInterval(timerId);
+    timerId = null;
+    clearTimeout(flashTimer);
+    flash.style.transition = 'none';
+    flash.style.left = '-100%';
+  }
+
+  function togglePlay() {
+    playing = !playing;
+    if (playing) {
+      iconPlay.style.display  = 'none';
+      iconPauseL.style.display = 'block';
+      iconPauseR.style.display = 'block';
+      playIcon.classList.add('playing');
+      hint.style.opacity = '0';
+      startMetronome();
+    } else {
+      iconPlay.style.display  = 'polygon';
+      iconPauseL.style.display = 'none';
+      iconPauseR.style.display = 'none';
+      iconPlay.style.display = '';
+      playIcon.classList.remove('playing');
+      hint.style.opacity = '';
+      stopMetronome();
+    }
+  }
+
+  function setBPM(val) {
+    bpm = Math.round(Math.min(BPM_MAX, Math.max(BPM_MIN, val)));
+    bpmDisplay.textContent = bpm;
+    if (playing) startMetronome(); // restart with new interval
+  }
+
+  // ── Touch / pointer interaction ──────────────
+  let dragStartX     = null;
+  let dragStartBPM   = bpm;
+  let isDragging     = false;
+  const DRAG_THRESH  = 8; // px before we call it a drag
+
+  function onPointerDown(e) {
+    dragStartX   = e.clientX ?? (e.touches && e.touches[0].clientX);
+    dragStartBPM = bpm;
+    isDragging   = false;
+  }
+
+  function onPointerMove(e) {
+    if (dragStartX === null) return;
+    const cx    = e.clientX ?? (e.touches && e.touches[0].clientX);
+    const delta = cx - dragStartX;
+
+    if (!isDragging && Math.abs(delta) > DRAG_THRESH) {
+      isDragging = true;
+      dragBar.classList.add('active');
+    }
+
+    if (isDragging) {
+      const newBPM = dragStartBPM + delta * SWIPE_SENSITIVITY;
+      setBPM(newBPM);
+
+      // Update progress bar to show relative position
+      const pct = ((bpm - BPM_MIN) / (BPM_MAX - BPM_MIN)) * 100;
+      dragProgress.style.width = pct + '%';
+    }
+  }
+
+  function onPointerUp(e) {
+    if (!isDragging) {
+      // It was a tap — toggle play
+      togglePlay();
+    }
+    dragStartX = null;
+    isDragging = false;
+    dragBar.classList.remove('active');
+  }
+
+  // Mouse events
+  document.addEventListener('mousedown',  onPointerDown);
+  document.addEventListener('mousemove',  onPointerMove);
+  document.addEventListener('mouseup',    onPointerUp);
+
+  // Touch events
+  document.addEventListener('touchstart', e => onPointerDown(e.touches[0]), { passive: true });
+  document.addEventListener('touchmove',  e => {
+    onPointerMove(e.touches[0]);
+  }, { passive: true });
+  document.addEventListener('touchend',   e => onPointerUp(e.changedTouches[0]));
+
+  // Prevent context menu on long-press
+  document.addEventListener('contextmenu', e => e.preventDefault());
+
+  // ── Keyboard shortcut ────────────────────────
+  document.addEventListener('keydown', e => {
+    if (e.code === 'Space')          { e.preventDefault(); togglePlay(); }
+    if (e.code === 'ArrowRight')     setBPM(bpm + 1);
+    if (e.code === 'ArrowLeft')      setBPM(bpm - 1);
+    if (e.code === 'ArrowUp')        setBPM(bpm + 5);
+    if (e.code === 'ArrowDown')      setBPM(bpm - 5);
+  });
+</script>
+</body>
+</html>
