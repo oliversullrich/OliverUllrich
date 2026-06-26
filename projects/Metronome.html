@@ -30,7 +30,7 @@
     const indicator = document.getElementById('color-indicator');
 
     let ctx = null, colorIdx = 0;
-    let bpm = 120, playing = false, timer = null, flashTimer = null;
+    let bpm = 60, playing = false, timer = null, flashTimer = null;
     let dragStartX = null, dragStartY = null, dragStartBPM = bpm, dragging = false, dragAxis = null;
 
     COLORS.forEach((c, i) => {
